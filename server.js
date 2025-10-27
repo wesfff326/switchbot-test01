@@ -12,7 +12,7 @@ const WEBEX_WEBHOOK_URL = process.env.WEBEX_WEBHOOK_URL;
 const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
 
 // 温度のしきい値（この温度を超えたら通知）
-const TEMPERATURE_THRESHOLD = 28;
+const TEMPERATURE_THRESHOLD = 10;
 
 // SwitchbotからのWebhook通知を受け取るエンドポイント
 app.post("/webhook", (req, res) => {
