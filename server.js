@@ -1,0 +1,88 @@
+const express = require("express");
+const axios = require("axios");
+const crypto = require("crypto");
+const app = express();
+app.use(express.json());
+
+// .envファイルから秘密情報を読み込む
+const SWITCHBOT_TOKEN = process.env.SWITCHBOT_TOKEN;
+const SWITCHBOT_SECRET = process.env.SWITCHBOT_SECRET;
+const WEBEX_WEBHOOK_URL = process.env.WEBEX_WEBHOOK_URL;
+
+// 温度のしきい値（この温度を超えたら通知）
+const TEMPERATURE_THRESHOLD = 10;
+
+// SwitchbotからのWebhook通知を受け取るエンドポイント
+app.post("/webhook", (req, res) => {
+  console.log("Webhook received from Switchbot!");
+  
+  // Switchbotからのリクエストが本物か検証（推奨）
+  // ここでは簡略化のため省略しますが、本番運用では署名検証を実装してください。
+
+  const event = req.body;
+  console.log(JSON.stringify(event, null, 2));
+
+  // 温度イベントで、かつ温度がしきい値を超えた場合のみ処理
+  if (event.eventType === "changeReport" && event.context.temperature > TEMPERATURE_THRESHOLD) {
+    const deviceName = event.context.deviceName || "温湿度計";
+    const temperature = event.context.temperature;
+
+    // Webexに送信するメッセージを作成
+    const message = `**【温度警告】**\n\n- デバイス: ${deviceName}\n- 現在の温度: **${temperature}℃**\n- 設定値 (${TEMPERATURE_THRESHOLD}℃) を超過しました。`;
+    
+    // Webexに通知を送信
+    axios.post(WEBEX_WEBHOOK_URL, { markdown: message })
+      .then(() => {
+        console.log("Successfully sent alert to Webex.");
+      })
+      .catch(error => {
+        console.error("Error sending to Webex:", error.message);
+      });
+  }
+  
+  // Switchbotに正常に受け取ったことを伝える
+  res.sendStatus(200);
+});
+
+// WebhookをSwitchbotに登録するためのエンドポイント
+app.get("/setup", async (req, res) => {
+  try {
+    const t = Date.now();
+    const nonce = "requestID"; // 本来はランダムな文字列
+    const data = SWITCHBOT_TOKEN + t + nonce;
+    const sign = crypto.createHmac("sha256", SWITCHBOT_SECRET)
+      .update(Buffer.from(data, "utf-8"))
+      .digest("base64");
+
+    const your_server_url = `https://${process.env.PROJECT_DOMAIN}.glitch.me/webhook`;
+
+    const response = await axios.post(
+      "https://api.switch-bot.com/v1.1/webhook/setupWebhook",
+      {
+        action: "setupWebhook",
+        url: your_server_url,
+        deviceList: "ALL", // すべてのデバイスの変更を通知
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": SWITCHBOT_TOKEN,
+          "sign": sign,
+          "t": t,
+          "nonce": nonce,
+        },
+      }
+    );
+
+    console.log("Webhook setup response:", response.data);
+    res.send(`Webhook setup successful! Pointing to: ${your_server_url}`);
+  } catch (error) {
+    console.error("Error setting up webhook:", error.response ? error.response.data : error.message);
+    res.status(500).send("Error setting up webhook. Check logs.");
+  }
+});
+
+// サーバーを起動
+const listener = app.listen(process.env.PORT, () => {
+  console.log("Your app is listening on port " + listener.address().port);
+});
